@@ -7,6 +7,7 @@ from discord.ext import commands
 from dotenv import load_dotenv
 from utils.logger import setup_logger
 from commands.basic import BasicCommands
+from commands.jeopardy import JeopardyGame
 
 # Load environment variables
 load_dotenv()
@@ -45,6 +46,9 @@ class DiscordBot(commands.Bot):
             # Add command cogs
             await self.add_cog(BasicCommands(self))
             logger.info("Basic commands cog loaded successfully")
+            
+            await self.add_cog(JeopardyGame(self))
+            logger.info("Jeopardy commands cog loaded successfully")
             
             # Sync slash commands
             if self.guild_id:
