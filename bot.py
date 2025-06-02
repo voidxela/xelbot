@@ -81,6 +81,11 @@ class DiscordBot(commands.Bot):
         # Log guild information
         for guild in self.guilds:
             logger.info(f'Connected to guild: {guild.name} (ID: {guild.id})')
+            
+        # Additional debugging info
+        if len(self.guilds) == 0:
+            logger.warning("Bot is not in any guilds. Make sure the bot is properly invited to a server.")
+            logger.info("Bot invite URL should include 'bot' and 'applications.commands' scopes")
     
     async def on_guild_join(self, guild):
         """
