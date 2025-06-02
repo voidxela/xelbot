@@ -131,67 +131,90 @@ class JeopardyScraper:
                 if date_match:
                     air_date = date_match.group(1)
             
-            # Find all clue divs
-            clue_divs = soup.find_all('td', class_='clue')
+            # Look for different round tables
+            rounds = [
+                ('jeopardy_round', 'Jeopardy'),
+                ('double_jeopardy_round', 'Double Jeopardy'),
+                ('final_jeopardy_round', 'Final Jeopardy')
+            ]
             
-            for clue_div in clue_divs:
-                try:
-                    # Get the clue text
-                    clue_text_elem = clue_div.find('td', class_='clue_text')
-                    if not clue_text_elem:
-                        continue
-                    
-                    clue_text = clue_text_elem.get_text(strip=True)
-                    if not clue_text:
-                        continue
-                    
-                    # Get the answer from the mouseover attribute
-                    clue_link = clue_text_elem.find('a')
-                    if not clue_link or 'onmouseover' not in clue_link.attrs:
-                        continue
-                    
-                    mouseover = clue_link['onmouseover']
-                    answer_match = re.search(r"correct_response'>\s*([^<]+)", mouseover)
-                    if not answer_match:
-                        continue
-                    
-                    answer = answer_match.group(1).strip()
-                    
-                    # Get category from the header
-                    category = None
-                    category_elem = clue_div.find_parent('table').find('td', class_='category_name')
-                    if category_elem:
-                        category = category_elem.get_text(strip=True)
-                    
-                    # Get value
-                    value = None
-                    value_elem = clue_div.find('td', class_='clue_value')
-                    if value_elem:
-                        value_text = value_elem.get_text(strip=True)
-                        value_match = re.search(r'\$?([\d,]+)', value_text)
-                        if value_match:
-                            value = int(value_match.group(1).replace(',', ''))
-                    
-                    # Determine round type based on the section
-                    round_type = "Jeopardy"
-                    if clue_div.find_parent('div', id='double_jeopardy_round'):
-                        round_type = "Double Jeopardy"
-                    elif clue_div.find_parent('div', id='final_jeopardy_round'):
-                        round_type = "Final Jeopardy"
-                    
-                    questions.append({
-                        'category': category or 'Unknown',
-                        'clue': clue_text,
-                        'answer': answer,
-                        'value': value,
-                        'air_date': air_date,
-                        'round_type': round_type,
-                        'show_number': game_id
-                    })
-                    
-                except Exception as e:
-                    logger.warning(f"Error parsing clue: {e}")
+            for round_id, round_name in rounds:
+                round_div = soup.find('div', id=round_id)
+                if not round_div:
                     continue
+                
+                # Get categories for this round
+                categories = []
+                category_row = round_div.find('tr')
+                if category_row:
+                    for cat_cell in category_row.find_all('td', class_='category_name'):
+                        categories.append(cat_cell.get_text(strip=True))
+                
+                # Find all clue cells in this round
+                clue_cells = round_div.find_all('td', class_='clue')
+                
+                for clue_cell in clue_cells:
+                    try:
+                        # Find the clue text element
+                        clue_text_elem = clue_cell.find('td', class_='clue_text')
+                        if not clue_text_elem:
+                            continue
+                        
+                        clue_text = clue_text_elem.get_text(strip=True)
+                        if not clue_text or clue_text == "=":
+                            continue
+                        
+                        # Find the hidden answer element with correct_response
+                        answer = None
+                        correct_response_elem = clue_cell.find('em', class_='correct_response')
+                        if correct_response_elem:
+                            answer = correct_response_elem.get_text(strip=True)
+                        
+                        if not answer:
+                            continue
+                        
+                        # Clean up the answer
+                        answer = re.sub(r'<[^>]+>', '', answer)  # Remove HTML tags
+                        answer = answer.replace('&nbsp;', ' ').strip()
+                        
+                        # Get category - find which column this clue is in
+                        category = "Unknown"
+                        if categories:
+                            # Try to determine category by position
+                            try:
+                                # Find the position of this clue in the table
+                                row = clue_cell.find_parent('tr')
+                                if row:
+                                    cells = row.find_all('td')
+                                    for i, cell in enumerate(cells):
+                                        if cell == clue_cell and i < len(categories):
+                                            category = categories[i]
+                                            break
+                            except:
+                                pass
+                        
+                        # Get value from the clue_value element
+                        value = None
+                        value_elem = clue_cell.find('td', class_='clue_value')
+                        if value_elem:
+                            value_text = value_elem.get_text(strip=True)
+                            value_match = re.search(r'\$?([\d,]+)', value_text)
+                            if value_match:
+                                value = int(value_match.group(1).replace(',', ''))
+                        
+                        questions.append({
+                            'category': category,
+                            'clue': clue_text,
+                            'answer': answer,
+                            'value': value,
+                            'air_date': air_date,
+                            'round_type': round_name,
+                            'show_number': game_id
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"Error parsing clue in {round_name}: {e}")
+                        continue
             
             logger.info(f"Scraped {len(questions)} questions from game {game_id}")
             return questions
