@@ -23,7 +23,6 @@ class DiscordBot(commands.Bot):
         # Define bot intents
         intents = discord.Intents.default()
         intents.message_content = True  # Required for message content access
-        intents.guild_messages = True
         
         # Initialize bot with command prefix and intents
         super().__init__(
