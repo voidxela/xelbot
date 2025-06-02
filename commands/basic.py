@@ -158,6 +158,25 @@ class BasicCommands(commands.Cog):
             inline=False
         )
         
+        # Jeopardy Commands
+        embed.add_field(
+            name="🎯 /clue",
+            value="Start a Jeopardy game with a random question",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 /jeopardy_stats",
+            value="Show Jeopardy database statistics",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🛑 /endgame",
+            value="End the current Jeopardy game (moderators only)",
+            inline=False
+        )
+        
         embed.set_footer(text="Use the commands by typing them in chat!")
         
         await interaction.response.send_message(embed=embed)
