@@ -299,7 +299,7 @@ class JeopardyGame(commands.Cog):
         End the current game in the channel (for moderators).
         """
         # Check if user has manage messages permission
-        if not interaction.user.guild_permissions.manage_messages:
+        if not hasattr(interaction.user, 'guild_permissions') or not interaction.user.guild_permissions.manage_messages:
             embed = discord.Embed(
                 title="❌ Permission Denied",
                 description="You need 'Manage Messages' permission to end games.",
