@@ -1,38 +1,30 @@
 """
-Web scraper for J-Archive Jeopardy questions.
+Web scraper for J-Archive Jeopardy questions with improved category extraction.
 This scraper is designed to be gentle on the servers with delays between requests.
 """
 
 import requests
-from bs4 import BeautifulSoup
 import time
 import re
 import logging
-from typing import List, Dict, Optional
-from database.models import JeopardyQuestion, get_session, create_tables
+from bs4 import BeautifulSoup
+from typing import List, Dict
+from database.models import get_session, JeopardyQuestion
 
-# Setup logging
 logger = logging.getLogger(__name__)
 
 class JeopardyScraper:
     """
-    Scraper for J-Archive.com to collect Jeopardy questions and answers.
+    Enhanced scraper for J-Archive.com with improved category matching.
     """
     
     def __init__(self, delay_seconds: float = 2.0):
-        """
-        Initialize the scraper.
-        
-        Args:
-            delay_seconds: Delay between requests to be gentle on the server
-        """
-        self.base_url = "https://www.j-archive.com"
         self.delay_seconds = delay_seconds
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
-        
+    
     def get_season_list(self) -> List[Dict]:
         """
         Get list of all seasons from the main page.
@@ -41,22 +33,22 @@ class JeopardyScraper:
             List of season information dictionaries
         """
         try:
-            response = self.session.get(f"{self.base_url}/listseasons.php")
+            response = self.session.get("https://www.j-archive.com/listseasons.php")
             response.raise_for_status()
             
             soup = BeautifulSoup(response.content, 'html.parser')
             seasons = []
             
-            # Find season links
-            for link in soup.find_all('a', href=re.compile(r'showseason\.php\?season=\d+')):
-                season_match = re.search(r'season=(\d+)', link['href'])
-                if season_match:
-                    season_num = int(season_match.group(1))
-                    seasons.append({
-                        'season': season_num,
-                        'url': f"{self.base_url}/{link['href']}",
-                        'text': link.get_text(strip=True)
-                    })
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if 'showseason.php?season=' in href:
+                    season_match = re.search(r'season=(\d+)', href)
+                    if season_match:
+                        season_num = int(season_match.group(1))
+                        seasons.append({
+                            'season': season_num,
+                            'url': f"https://www.j-archive.com/{href}"
+                        })
             
             logger.info(f"Found {len(seasons)} seasons")
             return seasons
@@ -84,16 +76,16 @@ class JeopardyScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             games = []
             
-            # Find game links
-            for link in soup.find_all('a', href=re.compile(r'showgame\.php\?game_id=\d+')):
-                game_match = re.search(r'game_id=(\d+)', link['href'])
-                if game_match:
-                    game_id = int(game_match.group(1))
-                    games.append({
-                        'game_id': game_id,
-                        'url': f"{self.base_url}/{link['href']}",
-                        'text': link.get_text(strip=True)
-                    })
+            for link in soup.find_all('a', href=True):
+                href = link['href']
+                if 'showgame.php?game_id=' in href:
+                    game_match = re.search(r'game_id=(\d+)', href)
+                    if game_match:
+                        game_id = int(game_match.group(1))
+                        games.append({
+                            'game_id': game_id,
+                            'url': f"https://www.j-archive.com/{href}"
+                        })
             
             logger.info(f"Found {len(games)} games in season")
             return games
@@ -104,17 +96,10 @@ class JeopardyScraper:
     
     def scrape_game_questions(self, game_url: str, game_id: int) -> List[Dict]:
         """
-        Scrape questions from a specific game.
-        
-        Args:
-            game_url: URL of the game page
-            game_id: ID of the game
-            
-        Returns:
-            List of question dictionaries
+        Scrape questions from a specific game with improved category extraction.
         """
         try:
-            time.sleep(self.delay_seconds)  # Be gentle on the server
+            time.sleep(self.delay_seconds)
             
             response = self.session.get(game_url)
             response.raise_for_status()
@@ -131,7 +116,7 @@ class JeopardyScraper:
                 if date_match:
                     air_date = date_match.group(1)
             
-            # Look for different round tables
+            # Process each round
             rounds = [
                 ('jeopardy_round', 'Jeopardy'),
                 ('double_jeopardy_round', 'Double Jeopardy'),
@@ -143,89 +128,43 @@ class JeopardyScraper:
                 if not round_div:
                     continue
                 
-                # Get the main table for this round
-                round_table = round_div.find('table')
-                if not round_table:
+                # For Final Jeopardy, handle differently
+                if round_name == 'Final Jeopardy':
+                    questions.extend(self._parse_final_jeopardy(round_div, air_date, game_id))
                     continue
                 
-                # Get categories from the first row
+                # Get the main game board table
+                game_table = round_div.find('table')
+                if not game_table:
+                    continue
+                
+                # Extract categories from the header row
                 categories = []
-                first_row = round_table.find('tr')
-                if first_row:
-                    for cat_cell in first_row.find_all('td', class_='category_name'):
+                header_row = game_table.find('tr')
+                if header_row:
+                    for cat_cell in header_row.find_all('td', class_='category_name'):
                         categories.append(cat_cell.get_text(strip=True))
                 
-                # Find all clue cells in this round
-                clue_cells = round_div.find_all('td', class_='clue')
+                # Get all data rows (skip header)
+                data_rows = game_table.find_all('tr')[1:]
                 
-                for clue_cell in clue_cells:
-                    try:
-                        # Find the clue text element
-                        clue_text_elem = clue_cell.find('td', class_='clue_text')
-                        if not clue_text_elem:
-                            continue
-                        
-                        clue_text = clue_text_elem.get_text(strip=True)
-                        if not clue_text or clue_text == "=":
-                            continue
-                        
-                        # Find the hidden answer element with correct_response
-                        answer = None
-                        correct_response_elem = clue_cell.find('em', class_='correct_response')
-                        if correct_response_elem:
-                            answer = correct_response_elem.get_text(strip=True)
-                        
-                        if not answer:
-                            continue
-                        
-                        # Clean up the answer
-                        answer = re.sub(r'<[^>]+>', '', answer)  # Remove HTML tags
-                        answer = answer.replace('&nbsp;', ' ').strip()
-                        
-                        # Get category by finding the column position
-                        category = "Unknown"
-                        if categories:
-                            try:
-                                # Find which table column this clue is in
-                                parent_table = clue_cell.find_parent('table')
-                                if parent_table:
-                                    # Get all rows in the table
-                                    all_rows = parent_table.find_all('tr')
-                                    
-                                    # Find which row contains this clue
-                                    for row_idx, row in enumerate(all_rows):
-                                        cells_in_row = row.find_all('td', class_='clue')
-                                        for col_idx, cell in enumerate(cells_in_row):
-                                            if cell == clue_cell and col_idx < len(categories):
-                                                category = categories[col_idx]
-                                                break
-                                        if category != "Unknown":
-                                            break
-                            except:
-                                pass
-                        
-                        # Get value from the clue_value element
-                        value = None
-                        value_elem = clue_cell.find('td', class_='clue_value')
-                        if value_elem:
-                            value_text = value_elem.get_text(strip=True)
-                            value_match = re.search(r'\$?([\d,]+)', value_text)
-                            if value_match:
-                                value = int(value_match.group(1).replace(',', ''))
-                        
-                        questions.append({
-                            'category': category,
-                            'clue': clue_text,
-                            'answer': answer,
-                            'value': value,
-                            'air_date': air_date,
-                            'round_type': round_name,
-                            'show_number': game_id
-                        })
-                        
-                    except Exception as e:
-                        logger.warning(f"Error parsing clue in {round_name}: {e}")
-                        continue
+                # Standard Jeopardy values
+                if round_name == 'Jeopardy':
+                    standard_values = [200, 400, 600, 800, 1000]
+                else:  # Double Jeopardy
+                    standard_values = [400, 800, 1200, 1600, 2000]
+                
+                # Process each row
+                for row_idx, row in enumerate(data_rows):
+                    clue_cells = row.find_all('td', class_='clue')
+                    
+                    for col_idx, clue_cell in enumerate(clue_cells):
+                        question_data = self._parse_clue_cell(
+                            clue_cell, categories, col_idx, row_idx, 
+                            standard_values, air_date, round_name, game_id
+                        )
+                        if question_data:
+                            questions.append(question_data)
             
             logger.info(f"Scraped {len(questions)} questions from game {game_id}")
             return questions
@@ -234,23 +173,115 @@ class JeopardyScraper:
             logger.error(f"Error scraping game {game_id}: {e}")
             return []
     
-    def save_questions_to_database(self, questions: List[Dict]) -> int:
-        """
-        Save questions to the database.
-        
-        Args:
-            questions: List of question dictionaries
+    def _parse_clue_cell(self, clue_cell, categories, col_idx, row_idx, 
+                        standard_values, air_date, round_name, game_id):
+        """Parse a single clue cell and return question data."""
+        try:
+            # Get clue text
+            clue_text_elem = clue_cell.find('td', class_='clue_text')
+            if not clue_text_elem:
+                return None
             
-        Returns:
-            Number of questions saved
-        """
-        session = get_session()
+            clue_text = clue_text_elem.get_text(strip=True)
+            if not clue_text or clue_text == "=":
+                return None
+            
+            # Get answer from correct_response element
+            correct_response_elem = clue_cell.find('em', class_='correct_response')
+            if not correct_response_elem:
+                return None
+            
+            answer = correct_response_elem.get_text(strip=True)
+            if not answer:
+                return None
+            
+            # Clean up answer
+            answer = re.sub(r'<[^>]+>', '', answer)
+            answer = answer.replace('&nbsp;', ' ').strip()
+            
+            # Get category
+            category = "Unknown"
+            if categories and col_idx < len(categories):
+                category = categories[col_idx]
+            
+            # Get value - try from clue_value element first, then use standard values
+            value = None
+            value_elem = clue_cell.find('td', class_='clue_value')
+            if value_elem:
+                value_text = value_elem.get_text(strip=True)
+                value_match = re.search(r'\$?([\d,]+)', value_text)
+                if value_match:
+                    value = int(value_match.group(1).replace(',', ''))
+            
+            # If no value found, use standard values based on position
+            if not value and row_idx < len(standard_values):
+                value = standard_values[row_idx]
+            
+            return {
+                'category': category,
+                'clue': clue_text,
+                'answer': answer,
+                'value': value,
+                'air_date': air_date,
+                'round_type': round_name,
+                'show_number': game_id
+            }
+            
+        except Exception as e:
+            logger.warning(f"Error parsing clue cell: {e}")
+            return None
+    
+    def _parse_final_jeopardy(self, round_div, air_date, game_id):
+        """Parse Final Jeopardy round."""
+        questions = []
+        try:
+            # Get category
+            category_elem = round_div.find('td', class_='category_name')
+            category = category_elem.get_text(strip=True) if category_elem else "Final Jeopardy"
+            
+            # Get clue
+            clue_elem = round_div.find('td', class_='clue_text')
+            if not clue_elem:
+                return questions
+            
+            clue_text = clue_elem.get_text(strip=True)
+            
+            # Get answer
+            correct_response_elem = round_div.find('em', class_='correct_response')
+            if not correct_response_elem:
+                return questions
+            
+            answer = correct_response_elem.get_text(strip=True)
+            answer = re.sub(r'<[^>]+>', '', answer)
+            answer = answer.replace('&nbsp;', ' ').strip()
+            
+            questions.append({
+                'category': category,
+                'clue': clue_text,
+                'answer': answer,
+                'value': None,  # Final Jeopardy doesn't have standard values
+                'air_date': air_date,
+                'round_type': 'Final Jeopardy',
+                'show_number': game_id
+            })
+            
+        except Exception as e:
+            logger.warning(f"Error parsing Final Jeopardy: {e}")
+        
+        return questions
+    
+    def save_questions_to_database(self, questions: List[Dict]) -> int:
+        """Save questions to the database."""
+        if not questions:
+            return 0
+        
+        db_session = get_session()
         saved_count = 0
         
         try:
             for q_data in questions:
                 # Check if question already exists
-                existing = session.query(JeopardyQuestion).filter_by(
+                existing = db_session.query(JeopardyQuestion).filter_by(
                     clue=q_data['clue'],
                     answer=q_data['answer']
                 ).first()
@@ -265,72 +296,39 @@ class JeopardyScraper:
                         round_type=q_data['round_type'],
                         show_number=q_data['show_number']
                     )
-                    session.add(question)
+                    db_session.add(question)
                     saved_count += 1
             
-            session.commit()
+            db_session.commit()
             logger.info(f"Saved {saved_count} new questions to database")
+            return saved_count
             
         except Exception as e:
-            session.rollback()
-            logger.error(f"Error saving to database: {e}")
+            db_session.rollback()
+            logger.error(f"Database error: {e}")
+            return 0
         finally:
-            session.close()
-        
-        return saved_count
-    
-    def scrape_limited_data(self, max_seasons: int = 2, max_games_per_season: int = 5) -> int:
-        """
-        Scrape a limited amount of data for testing purposes.
-        
-        Args:
-            max_seasons: Maximum number of seasons to scrape
-            max_games_per_season: Maximum games per season
-            
-        Returns:
-            Total number of questions scraped
-        """
-        logger.info("Starting limited Jeopardy data scraping...")
-        
-        # Create tables if they don't exist
-        create_tables()
-        
-        total_questions = 0
-        seasons = self.get_season_list()
-        
-        # Take only the most recent seasons
-        recent_seasons = sorted(seasons, key=lambda x: x['season'], reverse=True)[:max_seasons]
-        
-        for season in recent_seasons:
-            logger.info(f"Scraping season {season['season']}")
-            games = self.get_games_from_season(season['url'])
-            
-            # Take only a few games from each season
-            limited_games = games[:max_games_per_season]
-            
-            for game in limited_games:
-                questions = self.scrape_game_questions(game['url'], game['game_id'])
-                if questions:
-                    saved = self.save_questions_to_database(questions)
-                    total_questions += saved
-                
-                # Extra delay between games
-                time.sleep(self.delay_seconds)
-        
-        logger.info(f"Completed scraping. Total questions: {total_questions}")
-        return total_questions
+            db_session.close()
 
-def run_initial_scrape():
-    """
-    Run an initial scrape to populate the database with some questions.
-    """
-    scraper = JeopardyScraper(delay_seconds=1.5)  # Be gentle on the server
-    return scraper.scrape_limited_data(max_seasons=2, max_games_per_season=3)
+def test_improved_scraper():
+    """Test the improved scraper."""
+    scraper = ImprovedJeopardyScraper(delay_seconds=1.0)
+    
+    # Test with a known game
+    game_url = "https://www.j-archive.com/showgame.php?game_id=9219"
+    questions = scraper.scrape_game_questions(game_url, 9219)
+    
+    if questions:
+        print(f"Found {len(questions)} questions")
+        for i, q in enumerate(questions[:3]):
+            print(f"\nExample {i+1}:")
+            print(f"Category: {q['category']}")
+            print(f"Clue: {q['clue'][:100]}...")
+            print(f"Answer: {q['answer']}")
+            print(f"Value: ${q['value'] if q['value'] else 'N/A'}")
+            print(f"Round: {q['round_type']}")
+    else:
+        print("No questions found")
 
 if __name__ == "__main__":
-    # Setup logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Run the scraper
-    questions_count = run_initial_scrape()
-    print(f"Scraped {questions_count} questions successfully!")
+    test_improved_scraper()
