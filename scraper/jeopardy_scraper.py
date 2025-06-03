@@ -143,11 +143,16 @@ class JeopardyScraper:
                 if not round_div:
                     continue
                 
-                # Get categories for this round
+                # Get the main table for this round
+                round_table = round_div.find('table')
+                if not round_table:
+                    continue
+                
+                # Get categories from the first row
                 categories = []
-                category_row = round_div.find('tr')
-                if category_row:
-                    for cat_cell in category_row.find_all('td', class_='category_name'):
+                first_row = round_table.find('tr')
+                if first_row:
+                    for cat_cell in first_row.find_all('td', class_='category_name'):
                         categories.append(cat_cell.get_text(strip=True))
                 
                 # Find all clue cells in this round
@@ -177,18 +182,24 @@ class JeopardyScraper:
                         answer = re.sub(r'<[^>]+>', '', answer)  # Remove HTML tags
                         answer = answer.replace('&nbsp;', ' ').strip()
                         
-                        # Get category - find which column this clue is in
+                        # Get category by finding the column position
                         category = "Unknown"
                         if categories:
-                            # Try to determine category by position
                             try:
-                                # Find the position of this clue in the table
-                                row = clue_cell.find_parent('tr')
-                                if row:
-                                    cells = row.find_all('td')
-                                    for i, cell in enumerate(cells):
-                                        if cell == clue_cell and i < len(categories):
-                                            category = categories[i]
+                                # Find which table column this clue is in
+                                parent_table = clue_cell.find_parent('table')
+                                if parent_table:
+                                    # Get all rows in the table
+                                    all_rows = parent_table.find_all('tr')
+                                    
+                                    # Find which row contains this clue
+                                    for row_idx, row in enumerate(all_rows):
+                                        cells_in_row = row.find_all('td', class_='clue')
+                                        for col_idx, cell in enumerate(cells_in_row):
+                                            if cell == clue_cell and col_idx < len(categories):
+                                                category = categories[col_idx]
+                                                break
+                                        if category != "Unknown":
                                             break
                             except:
                                 pass
