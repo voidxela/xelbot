@@ -118,7 +118,7 @@ class TurnoverCommands(commands.Cog):
             # Extract game information
             game_info = self.extract_game_info(turnover_url)
             
-            # Create embed with turnover information
+            # Create embed with turnover information (without video link in embed)
             embed = discord.Embed(
                 title="🏈 TURNOVER!",
                 description=f"**{game_info}**",
@@ -126,18 +126,16 @@ class TurnoverCommands(commands.Cog):
             )
             
             embed.add_field(
-                name="📺 Clip",
-                value=f"[Watch the turnover]({turnover_url})",
+                name="🎲 Random Clip",
+                value=f"Showing clip {self.turnover_urls.index(turnover_url) + 1} of {len(self.turnover_urls)}",
                 inline=False
             )
             
-            embed.set_footer(text=f"Clip {self.turnover_urls.index(turnover_url) + 1} of {len(self.turnover_urls)}")
+            embed.set_footer(text="Video will appear below this message")
             
-            # Send the response with the video
-            await interaction.response.send_message(
-                content=turnover_url,
-                embed=embed
-            )
+            # Send the embed first, then the video URL for proper embedding
+            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(content=turnover_url)
             
             logger.info(f"Sent turnover clip: {game_info}")
             

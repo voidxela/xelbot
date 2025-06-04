@@ -196,7 +196,7 @@ class BasicCommands(commands.Cog):
     
     @app_commands.command(name="random", description="Generate a random number")
     @app_commands.describe(maximum="Maximum number (default: 100)")
-    async def random_number(self, interaction: discord.Interaction, maximum: Optional[int] = 100):
+    async def random_number(self, interaction: discord.Interaction, maximum: int = 100):
         """
         Generate a random number between 1 and the specified maximum.
         """
