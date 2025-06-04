@@ -92,9 +92,14 @@ class TurnoverCommands(commands.Cog):
             # Check if we have any turnover URLs loaded
             if not self.turnover_urls:
                 embed = discord.Embed(
-                    title="❌ No Turnover Clips Available",
-                    description="No turnover clips are currently loaded. Please check the data file.",
-                    color=discord.Color.red()
+                    title="🏈 No Turnover Clips Available",
+                    description="The turnover clip database is currently empty.\n\nThe original Discord CDN links have expired and need to be replaced with fresh video URLs.",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(
+                    name="📝 How to Add Clips",
+                    value="Upload new turnover videos and add their URLs to `data/turnovers.csv` in the format:\n`[URL]`",
+                    inline=False
                 )
                 await interaction.response.send_message(embed=embed)
                 return
