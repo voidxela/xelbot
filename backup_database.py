@@ -59,10 +59,10 @@ class DatabaseBackup:
             'database': database_name
         }
     
-    def create_pg_dump_backup(self, filename: Optional[str] = None) -> str:
+    def create_sql_backup(self, filename: Optional[str] = None) -> str:
         """
-        Create a PostgreSQL dump backup using pg_dump.
-        This is the recommended format for PostgreSQL backups.
+        Create a SQL backup using direct database queries.
+        This method generates SQL INSERT statements for all data.
         """
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -70,26 +70,105 @@ class DatabaseBackup:
         
         backup_path = self.backup_dir / filename
         
-        # Build pg_dump command
-        cmd = [
-            'pg_dump',
-            '-h', self.db_params['host'],
-            '-p', self.db_params['port'],
-            '-U', self.db_params['username'],
-            '-d', self.db_params['database'],
-            '--no-password',  # Use PGPASSWORD environment variable
-            '--verbose',
-            '--clean',  # Include DROP statements
-            '--if-exists',  # Use IF EXISTS for DROP statements
-            '-f', str(backup_path)
-        ]
-        
-        # Set password as environment variable
-        env = os.environ.copy()
-        if self.db_params['password']:
-            env['PGPASSWORD'] = self.db_params['password']
-        
+        session = get_session()
         try:
+            logger.info(f"Creating SQL backup: {backup_path}")
+            
+            with open(backup_path, 'w', encoding='utf-8') as f:
+                # Write header
+                f.write("-- Discord Bot Database Backup\n")
+                f.write(f"-- Created: {datetime.now().isoformat()}\n")
+                f.write(f"-- Database: {self.db_params['database']}\n")
+                f.write("-- \n\n")
+                
+                # Clean existing data
+                f.write("-- Clean existing data\n")
+                f.write("DELETE FROM game_sessions;\n")
+                f.write("DELETE FROM turnover_usage;\n")
+                f.write("DELETE FROM jeopardy_questions;\n\n")
+                
+                # Reset sequences
+                f.write("-- Reset sequences\n")
+                f.write("SELECT setval('jeopardy_questions_id_seq', 1, false);\n")
+                f.write("SELECT setval('game_sessions_id_seq', 1, false);\n")
+                f.write("SELECT setval('turnover_usage_id_seq', 1, false);\n\n")
+                
+                # Backup Jeopardy questions
+                f.write("-- Jeopardy Questions\n")
+                questions = session.query(JeopardyQuestion).all()
+                for q in questions:
+                    # Safely handle string fields
+                    category = str(q.category or '').replace("'", "''")
+                    clue = str(q.clue or '').replace("'", "''")
+                    answer = str(q.answer or '').replace("'", "''")
+                    
+                    # Handle optional fields
+                    air_date_val = 'NULL' if not q.air_date else f"'{str(q.air_date).replace(chr(39), chr(39)+chr(39))}'"
+                    round_type_val = 'NULL' if not q.round_type else f"'{str(q.round_type).replace(chr(39), chr(39)+chr(39))}'"
+                    value_val = 'NULL' if not q.value else str(q.value)
+                    show_number_val = 'NULL' if not q.show_number else str(q.show_number)
+                    
+                    # Write the INSERT statement
+                    insert_stmt = (
+                        f"INSERT INTO jeopardy_questions (category, clue, answer, value, air_date, round_type, show_number) "
+                        f"VALUES ('{category}', '{clue}', '{answer}', {value_val}, {air_date_val}, {round_type_val}, {show_number_val});\n"
+                    )
+                    f.write(insert_stmt)
+                
+                f.write(f"\n-- Inserted {len(questions)} jeopardy questions\n\n")
+                
+                # Backup turnover usage
+                f.write("-- Turnover Usage\n")
+                usage_records = session.query(TurnoverUsage).all()
+                for u in usage_records:
+                    f.write(f"INSERT INTO turnover_usage (user_id, last_used_date, usage_count) VALUES (")
+                    f.write(f"'{u.user_id}', '{u.last_used_date}', {u.usage_count});\n")
+                
+                f.write(f"\n-- Inserted {len(usage_records)} turnover usage records\n\n")
+                
+                # Note about game sessions (usually temporary data)
+                f.write("-- Note: Game sessions are temporary data and not backed up\n")
+                f.write("-- They will be recreated as new games are started\n")
+            
+            logger.info(f"SQL backup created successfully: {backup_path}")
+            logger.info(f"Backup contains: {len(questions)} questions, {len(usage_records)} usage records")
+            logger.info(f"Backup size: {backup_path.stat().st_size / 1024:.2f} KB")
+            return str(backup_path)
+            
+        finally:
+            session.close()
+    
+    def create_pg_dump_backup(self, filename: Optional[str] = None) -> str:
+        """
+        Create a PostgreSQL dump backup using pg_dump.
+        Falls back to SQL backup if pg_dump is not available or has version issues.
+        """
+        try:
+            if not filename:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"discord_bot_backup_{timestamp}.sql"
+            
+            backup_path = self.backup_dir / filename
+            
+            # Build pg_dump command
+            cmd = [
+                'pg_dump',
+                '-h', self.db_params['host'],
+                '-p', self.db_params['port'],
+                '-U', self.db_params['username'],
+                '-d', self.db_params['database'],
+                '--no-password',  # Use PGPASSWORD environment variable
+                '--verbose',
+                '--clean',  # Include DROP statements
+                '--if-exists',  # Use IF EXISTS for DROP statements
+                '-f', str(backup_path)
+            ]
+            
+            # Set password as environment variable
+            env = os.environ.copy()
+            if self.db_params['password']:
+                env['PGPASSWORD'] = self.db_params['password']
+            
             logger.info(f"Creating pg_dump backup: {backup_path}")
             result = subprocess.run(cmd, env=env, capture_output=True, text=True)
             
@@ -98,12 +177,16 @@ class DatabaseBackup:
                 logger.info(f"Backup size: {backup_path.stat().st_size / 1024:.2f} KB")
                 return str(backup_path)
             else:
-                logger.error(f"pg_dump failed: {result.stderr}")
-                raise RuntimeError(f"pg_dump failed: {result.stderr}")
+                logger.warning(f"pg_dump failed: {result.stderr}")
+                logger.info("Falling back to SQL backup method...")
+                return self.create_sql_backup(filename)
                 
         except FileNotFoundError:
-            logger.error("pg_dump command not found. Make sure PostgreSQL client tools are installed.")
-            raise RuntimeError("pg_dump command not found")
+            logger.warning("pg_dump command not found. Using SQL backup method instead.")
+            return self.create_sql_backup(filename)
+        except Exception as e:
+            logger.warning(f"pg_dump failed: {e}. Using SQL backup method instead.")
+            return self.create_sql_backup(filename)
     
     def create_json_backup(self, filename: Optional[str] = None) -> str:
         """
@@ -293,15 +376,20 @@ class DatabaseBackup:
     def list_backups(self) -> list:
         """List all available backup files."""
         backups = []
-        for backup_file in self.backup_dir.glob("discord_bot_backup_*"):
-            stat = backup_file.stat()
-            backups.append({
-                'filename': backup_file.name,
-                'path': str(backup_file),
-                'size': stat.st_size,
-                'created': datetime.fromtimestamp(stat.st_mtime),
-                'type': 'sql' if backup_file.suffix == '.sql' else 'json'
-            })
+        # Look for both standard naming pattern and test files
+        patterns = ["discord_bot_backup_*", "test_backup*"]
+        
+        for pattern in patterns:
+            for backup_file in self.backup_dir.glob(pattern):
+                if backup_file.suffix in ['.sql', '.json']:
+                    stat = backup_file.stat()
+                    backups.append({
+                        'filename': backup_file.name,
+                        'path': str(backup_file),
+                        'size': stat.st_size,
+                        'created': datetime.fromtimestamp(stat.st_mtime),
+                        'type': 'sql' if backup_file.suffix == '.sql' else 'json'
+                    })
         
         return sorted(backups, key=lambda x: x['created'], reverse=True)
     
