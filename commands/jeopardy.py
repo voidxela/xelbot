@@ -83,7 +83,7 @@ class JeopardyGame(commands.Cog):
             session.close()
     
     async def end_game(self, channel_id: int, winner: Optional[discord.Member] = None, 
-                      correct_answer: str = None):
+                      correct_answer: Optional[str] = None):
         """
         End the active game in a channel.
         """
@@ -98,18 +98,18 @@ class JeopardyGame(commands.Cog):
             del self.active_games[channel_id]
             
             # Update database
-            session = get_session()
+            db_session_obj = get_session()
             try:
-                db_session = session.query(GameSession).filter_by(
+                game_session = db_session_obj.query(GameSession).filter_by(
                     channel_id=str(channel_id)
                 ).first()
-                if db_session:
-                    db_session.is_active = False
-                    session.commit()
+                if game_session:
+                    game_session.is_active = False
+                    db_session_obj.commit()
             except Exception as e:
                 logger.error(f"Error updating game session: {e}")
             finally:
-                session.close()
+                db_session_obj.close()
     
     async def timeout_game(self, channel_id: int, channel, question: JeopardyQuestion):
         """
@@ -118,31 +118,66 @@ class JeopardyGame(commands.Cog):
         try:
             await asyncio.sleep(30)  # Default timeout
             
-            if channel_id in self.active_games:
-                embed = discord.Embed(
-                    title="⏰ Time's Up!",
-                    description=f"The correct answer was: **{question.answer}**",
-                    color=discord.Color.red()
-                )
-                embed.add_field(
-                    name="Category",
-                    value=question.category,
-                    inline=True
-                )
-                if question.value:
+            # Check if game is still active
+            if channel_id not in self.active_games:
+                return
+            
+            # Try to send timeout message
+            try:
+                # Get fresh channel reference to avoid stale objects
+                fresh_channel = self.bot.get_channel(channel_id)
+                if fresh_channel is None:
+                    # Try to fetch the channel if not in cache
+                    fresh_channel = await self.bot.fetch_channel(channel_id)
+                
+                if fresh_channel:
+                    embed = discord.Embed(
+                        title="⏰ Time's Up!",
+                        description=f"The correct answer was: **{question.answer}**",
+                        color=discord.Color.red()
+                    )
                     embed.add_field(
-                        name="Value",
-                        value=f"${question.value:,}",
+                        name="Category",
+                        value=question.category,
                         inline=True
                     )
-                
-                await channel.send(embed=embed)
-                await self.end_game(channel_id, correct_answer=question.answer)
+                    if question.value is not None:
+                        embed.add_field(
+                            name="Value",
+                            value=f"${question.value:,}",
+                            inline=True
+                        )
+                    
+                    await fresh_channel.send(embed=embed)
+                    logger.info(f"Timeout message sent for game in channel {channel_id}")
+                else:
+                    logger.warning(f"Could not get channel {channel_id} for timeout message")
+                    
+            except discord.Forbidden:
+                logger.warning(f"No permission to send timeout message in channel {channel_id}")
+            except discord.NotFound:
+                logger.warning(f"Channel {channel_id} not found for timeout message")
+            except discord.HTTPException as e:
+                logger.error(f"HTTP error sending timeout message to channel {channel_id}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error sending timeout message to channel {channel_id}: {e}")
+            
+            # Always end the game after timeout, regardless of message send success
+            await self.end_game(channel_id, correct_answer=str(question.answer))
                 
         except asyncio.CancelledError:
-            pass  # Game was ended before timeout
+            # Game was ended before timeout - this is normal
+            logger.debug(f"Timeout task cancelled for channel {channel_id}")
         except Exception as e:
-            logger.error(f"Error in timeout task: {e}")
+            logger.error(f"Error in timeout task for channel {channel_id}: {e}")
+            # Ensure game is cleaned up even if there's an error
+            try:
+                await self.end_game(channel_id, correct_answer=str(question.answer))
+            except Exception as cleanup_error:
+                logger.error(f"Error during timeout cleanup for channel {channel_id}: {cleanup_error}")
+                # Force remove from active games as last resort
+                if channel_id in self.active_games:
+                    del self.active_games[channel_id]
     
     @app_commands.command(name="clue", description="Start a Jeopardy game with a random clue")
     async def clue(self, interaction: discord.Interaction):
@@ -184,7 +219,7 @@ class JeopardyGame(commands.Cog):
             value=question.category,
             inline=True
         )
-        if question.value:
+        if question.value is not None:
             embed.add_field(
                 name="Value",
                 value=f"${question.value:,}",
@@ -232,10 +267,11 @@ class JeopardyGame(commands.Cog):
             session.close()
         
         # Start timeout task
-        timeout_task = asyncio.create_task(
-            self.timeout_game(channel_id, interaction.channel, question)
-        )
-        self.active_games[channel_id]['timeout_task'] = timeout_task
+        if interaction.channel_id is not None:
+            timeout_task = asyncio.create_task(
+                self.timeout_game(interaction.channel_id, interaction.channel, question)
+            )
+            self.active_games[channel_id]['timeout_task'] = timeout_task
     
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -301,7 +337,9 @@ class JeopardyGame(commands.Cog):
         End the current game in the channel (for moderators).
         """
         # Check if user has manage messages permission
-        if not hasattr(interaction.user, 'guild_permissions') or not interaction.user.guild_permissions.manage_messages:
+        if not (hasattr(interaction.user, 'guild_permissions') and 
+                hasattr(interaction.user.guild_permissions, 'manage_messages') and 
+                interaction.user.guild_permissions.manage_messages):
             embed = discord.Embed(
                 title="❌ Permission Denied",
                 description="You need 'Manage Messages' permission to end games.",
@@ -341,7 +379,8 @@ class JeopardyGame(commands.Cog):
         )
         
         await interaction.response.send_message(embed=embed)
-        await self.end_game(channel_id, correct_answer=question.answer)
+        if interaction.channel_id is not None:
+            await self.end_game(interaction.channel_id, correct_answer=str(question.answer))
     
     @app_commands.command(name="jeopardy_stats", description="Show Jeopardy database statistics")
     async def jeopardy_stats(self, interaction: discord.Interaction):
