@@ -98,61 +98,64 @@ class TurnoverCommands(commands.Cog):
     def can_use_turnover(self, user_id: int):
         """
         Check if user can use turnover command today.
-        Returns (can_use: bool, usage_record: TurnoverUsage or None)
+        Returns (can_use: bool, usage_count: int)
         """
-        session = get_session()
         try:
-            current_date = self.get_eastern_date()
-            usage_record = session.query(TurnoverUsage).filter(TurnoverUsage.user_id == str(user_id)).first()
+            import os
+            import psycopg2
             
-            if usage_record is None:
-                # User has never used the command
-                return True, None
-            elif usage_record.last_used_date != current_date:
-                # User last used it on a different date
-                return True, usage_record
-            else:
-                # User already used it today
-                return False, usage_record
-        finally:
-            session.close()
+            current_date = self.get_eastern_date()
+            database_url = os.getenv('DATABASE_URL')
+            
+            with psycopg2.connect(database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT usage_count FROM turnover_usage WHERE user_id = %s AND last_used_date = %s",
+                        (str(user_id), current_date)
+                    )
+                    result = cur.fetchone()
+                    
+                    if result is None:
+                        # User hasn't used it today
+                        return True, 0
+                    else:
+                        # User already used it today
+                        return False, result[0]
+        except Exception as e:
+            logger.error(f"Error checking turnover usage for user {user_id}: {e}")
+            # Default to allowing usage if there's a database error
+            return True, 0
     
     def record_turnover_usage(self, user_id: int):
         """
         Record that user has used the turnover command today.
         """
-        session = get_session()
         try:
+            import os
+            import psycopg2
+            
             current_date = self.get_eastern_date()
-            usage_record = session.query(TurnoverUsage).filter(TurnoverUsage.user_id == str(user_id)).first()
+            database_url = os.getenv('DATABASE_URL')
             
-            if usage_record is not None:
-                # Update existing record
-                session.execute(
-                    TurnoverUsage.__table__.update()
-                    .where(TurnoverUsage.user_id == str(user_id))
-                    .values(
-                        last_used_date=current_date,
-                        usage_count=TurnoverUsage.usage_count + 1,
-                        updated_at=datetime.utcnow()
+            with psycopg2.connect(database_url) as conn:
+                with conn.cursor() as cur:
+                    # Try to update existing record first
+                    cur.execute(
+                        "UPDATE turnover_usage SET usage_count = usage_count + 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s AND last_used_date = %s",
+                        (str(user_id), current_date)
                     )
-                )
-            else:
-                # Create new record
-                usage_record = TurnoverUsage(
-                    user_id=str(user_id),
-                    last_used_date=current_date,
-                    usage_count=1
-                )
-                session.add(usage_record)
-            
-            session.commit()
+                    
+                    if cur.rowcount == 0:
+                        # No existing record, insert new one
+                        cur.execute(
+                            "INSERT INTO turnover_usage (user_id, last_used_date, usage_count) VALUES (%s, %s, 1)",
+                            (str(user_id), current_date)
+                        )
+                    
+                    conn.commit()
         except Exception as e:
-            session.rollback()
             logger.error(f"Error recording turnover usage for user {user_id}: {e}")
             raise
-        finally:
-            session.close()
     
     @app_commands.command(name="turnover", description="Play a random football turnover clip (once per day)")
     async def turnover(self, interaction: discord.Interaction):
@@ -164,7 +167,7 @@ class TurnoverCommands(commands.Cog):
             user_id = interaction.user.id
             
             # Check cooldown first
-            can_use, usage_record = self.can_use_turnover(user_id)
+            can_use, usage_count = self.can_use_turnover(user_id)
             if not can_use:
                 eastern = pytz.timezone('US/Eastern')
                 now_eastern = datetime.now(eastern)
@@ -183,7 +186,7 @@ class TurnoverCommands(commands.Cog):
                 )
                 embed.add_field(
                     name="📊 Your Stats",
-                    value=f"Total clips watched: {usage_record.usage_count if usage_record else 0}",
+                    value=f"Total clips watched: {usage_count}",
                     inline=False
                 )
                 embed.set_footer(text="Resets daily at midnight Eastern time")
