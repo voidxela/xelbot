@@ -10,6 +10,11 @@ import random
 import os
 import logging
 import re
+from datetime import datetime
+import pytz
+from database.models import get_session
+import sqlite3
+import psycopg2
 
 logger = logging.getLogger(__name__)
 
@@ -82,12 +87,109 @@ class TurnoverCommands(commands.Cog):
         except:
             return "Football Turnover"
     
-    @app_commands.command(name="turnover", description="Play a random football turnover clip")
+    def get_eastern_date(self):
+        """
+        Get current date in Eastern time zone as YYYY-MM-DD string.
+        """
+        eastern = pytz.timezone('US/Eastern')
+        now_eastern = datetime.now(eastern)
+        return now_eastern.strftime('%Y-%m-%d')
+    
+    def can_use_turnover(self, user_id: int):
+        """
+        Check if user can use turnover command today.
+        Returns (can_use: bool, usage_record: TurnoverUsage or None)
+        """
+        session = get_session()
+        try:
+            current_date = self.get_eastern_date()
+            usage_record = session.query(TurnoverUsage).filter(TurnoverUsage.user_id == str(user_id)).first()
+            
+            if usage_record is None:
+                # User has never used the command
+                return True, None
+            elif usage_record.last_used_date != current_date:
+                # User last used it on a different date
+                return True, usage_record
+            else:
+                # User already used it today
+                return False, usage_record
+        finally:
+            session.close()
+    
+    def record_turnover_usage(self, user_id: int):
+        """
+        Record that user has used the turnover command today.
+        """
+        session = get_session()
+        try:
+            current_date = self.get_eastern_date()
+            usage_record = session.query(TurnoverUsage).filter(TurnoverUsage.user_id == str(user_id)).first()
+            
+            if usage_record is not None:
+                # Update existing record
+                session.execute(
+                    TurnoverUsage.__table__.update()
+                    .where(TurnoverUsage.user_id == str(user_id))
+                    .values(
+                        last_used_date=current_date,
+                        usage_count=TurnoverUsage.usage_count + 1,
+                        updated_at=datetime.utcnow()
+                    )
+                )
+            else:
+                # Create new record
+                usage_record = TurnoverUsage(
+                    user_id=str(user_id),
+                    last_used_date=current_date,
+                    usage_count=1
+                )
+                session.add(usage_record)
+            
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error recording turnover usage for user {user_id}: {e}")
+            raise
+        finally:
+            session.close()
+    
+    @app_commands.command(name="turnover", description="Play a random football turnover clip (once per day)")
     async def turnover(self, interaction: discord.Interaction):
         """
         Play a random football turnover clip from the database.
+        Limited to once per day per user (resets at midnight Eastern time).
         """
         try:
+            user_id = interaction.user.id
+            
+            # Check cooldown first
+            can_use, usage_record = self.can_use_turnover(user_id)
+            if not can_use:
+                eastern = pytz.timezone('US/Eastern')
+                now_eastern = datetime.now(eastern)
+                next_midnight = now_eastern.replace(hour=0, minute=0, second=0, microsecond=0)
+                next_midnight = next_midnight.replace(day=next_midnight.day + 1)
+                
+                # Calculate hours until reset
+                time_until_reset = next_midnight - now_eastern
+                hours_remaining = int(time_until_reset.total_seconds() / 3600)
+                minutes_remaining = int((time_until_reset.total_seconds() % 3600) / 60)
+                
+                embed = discord.Embed(
+                    title="⏰ Daily Limit Reached",
+                    description=f"You've already used your daily turnover clip!\n\nCome back in **{hours_remaining}h {minutes_remaining}m** for your next clip.",
+                    color=discord.Color.yellow()
+                )
+                embed.add_field(
+                    name="📊 Your Stats",
+                    value=f"Total clips watched: {usage_record.usage_count if usage_record else 0}",
+                    inline=False
+                )
+                embed.set_footer(text="Resets daily at midnight Eastern time")
+                await interaction.response.send_message(embed=embed, ephemeral=True)
+                return
+            
             # Check if we have any turnover URLs loaded
             if not self.turnover_urls:
                 embed = discord.Embed(
@@ -115,6 +217,9 @@ class TurnoverCommands(commands.Cog):
                 await interaction.response.send_message(embed=embed)
                 return
             
+            # Record usage before sending clip
+            self.record_turnover_usage(user_id)
+            
             # Extract game information
             game_info = self.extract_game_info(turnover_url)
             
@@ -125,7 +230,7 @@ class TurnoverCommands(commands.Cog):
             # Send just the content with video URL for clean embedding
             await interaction.response.send_message(content=content)
             
-            logger.info(f"Sent turnover clip: {game_info}")
+            logger.info(f"Sent turnover clip to user {user_id}: {game_info}")
             
         except Exception as e:
             logger.error(f"Error in turnover command: {e}")

@@ -46,6 +46,22 @@ class GameSession(Base):
     def __repr__(self):
         return f"<GameSession(channel_id={self.channel_id}, question_id={self.question_id}, active={self.is_active})>"
 
+class TurnoverUsage(Base):
+    """
+    Model for tracking turnover command usage with daily cooldowns.
+    """
+    __tablename__ = 'turnover_usage'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(50), nullable=False, unique=True)
+    last_used_date = Column(String(10), nullable=False)  # Format: YYYY-MM-DD in Eastern time
+    usage_count = Column(Integer, default=1)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    def __repr__(self):
+        return f"<TurnoverUsage(user_id={self.user_id}, last_used_date={self.last_used_date}, usage_count={self.usage_count})>"
+
 # Database setup
 def get_database_url():
     """Get database URL from environment variables."""
