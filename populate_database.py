@@ -98,11 +98,11 @@ def populate_jeopardy_questions():
         ]
         while not new_games and season_index < len(seasons):
             logger.info("All games in this season have already been scraped")
-            second_season = sorted(seasons,
-                                   key=lambda x: x['season'],
-                                   reverse=True)[1]
-            logger.info(f"Trying season {second_season['season']}")
-            games = scraper.get_games_from_season(second_season['url'])
+            season_index += 1
+            season = sorted(seasons, key=lambda x: x['season'],
+                            reverse=True)[season_index]
+            logger.info(f"Trying season {season['season']}")
+            games = scraper.get_games_from_season(season['url'])
             new_games = [
                 game for game in games if game['game_id'] not in scraped_games
             ]
