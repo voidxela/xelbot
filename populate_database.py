@@ -31,61 +31,42 @@ def get_scraped_games():
     finally:
         db_session.close()
 
-def populate_with_real_questions(max_games: int = 10):
+def populate_jeopardy_questions():
     """
     Populate database with real Jeopardy questions from multiple games.
     Continues from where previous runs left off.
-    
-    Args:
-        max_games: Maximum number of NEW games to scrape (default 10)
     """
-    scraper = JeopardyScraper(delay_seconds=2.0)  # Be respectful to the server
+    scraper = JeopardyScraper(delay_seconds=2.0)
     
     try:
-        # Get already scraped games
         scraped_games = get_scraped_games()
         logger.info(f"Found {len(scraped_games)} games already in database")
-        
-        # Get recent seasons
-        seasons = scraper.get_season_list()
+        seasons = sorted(scraper.get_season_list(), key=lambda x: x['season'], reverse=True)
         if not seasons:
             logger.error("Could not retrieve season list")
             return 0
-        
-        # Use the most recent season
-        recent_season = sorted(seasons, key=lambda x: x['season'], reverse=True)[0]
-        logger.info(f"Using season {recent_season['season']}")
-        
-        # Get games from that season
-        games = scraper.get_games_from_season(recent_season['url'])
+        season_index = 0
+        season = seasons[season_index]
+        logger.info(f"Using season {season['season']}")
+        games = scraper.get_games_from_season(season['url'])
         if not games:
-            logger.error("No games found in recent season")
+            logger.error("No games found in season")
             return 0
-        
-        # Filter out already scraped games
         new_games = [game for game in games if game['game_id'] not in scraped_games]
-        
-        if not new_games:
+        while not new_games and season_index < len(seasons):
             logger.info("All games in this season have already been scraped")
-            # Try the second most recent season
-            if len(seasons) > 1:
-                second_season = sorted(seasons, key=lambda x: x['season'], reverse=True)[1]
-                logger.info(f"Trying season {second_season['season']}")
-                games = scraper.get_games_from_season(second_season['url'])
-                new_games = [game for game in games if game['game_id'] not in scraped_games]
-        
+            second_season = sorted(seasons, key=lambda x: x['season'], reverse=True)[1]
+            logger.info(f"Trying season {second_season['season']}")
+            games = scraper.get_games_from_season(second_season['url'])
+            new_games = [game for game in games if game['game_id'] not in scraped_games]
         if not new_games:
             logger.info("No new games to scrape")
             return 0
-        
         logger.info(f"Found {len(new_games)} new games to scrape")
-        
         total_questions = 0
         games_processed = 0
-        
-        # Process the specified number of new games
-        for game in new_games[:max_games]:
-            logger.info(f"Processing game {game['game_id']} ({games_processed + 1}/{min(max_games, len(new_games))})")
+        for game in new_games:
+            logger.info(f"Processing game {game['game_id']} ({games_processed + 1}/{len(new_games)})")
             
             questions = scraper.scrape_game_questions(game['url'], game['game_id'])
             
@@ -125,12 +106,11 @@ def show_database_stats():
         unique_games = db_session.query(JeopardyQuestion.show_number).distinct().count()
         
         # Get category distribution
+        from sqlalchemy import func
         category_counts = db_session.query(
-            JeopardyQuestion.category, 
-            db_session.query(JeopardyQuestion).filter(
-                JeopardyQuestion.category == JeopardyQuestion.category
-            ).count().label('count')
-        ).group_by(JeopardyQuestion.category).order_by('count DESC').limit(10).all()
+            JeopardyQuestion.category,
+            func.count(JeopardyQuestion.id).label('count')
+        ).group_by(JeopardyQuestion.category).order_by(func.count(JeopardyQuestion.id).desc()).limit(10).all()
         
         print(f"\n=== Database Statistics ===")
         print(f"Total questions: {total_questions}")
@@ -154,21 +134,6 @@ if __name__ == "__main__":
     # Show current stats
     current_total = show_database_stats()
     
-    if current_total == 0:
-        print("\nDatabase is empty. Starting fresh scrape...")
-        max_games = 8
-    else:
-        print(f"\nDatabase contains {current_total} questions.")
-        print("Adding more questions from new games...")
-        max_games = 5
-    
     # Start scraping
-    questions_added = populate_with_real_questions(max_games=max_games)
+    populate_jeopardy_questions()
     
-    if questions_added > 0:
-        print(f"\nSuccess! Added {questions_added} new authentic Jeopardy questions.")
-        print("Your Discord bot now has even more real questions from actual episodes!")
-        show_database_stats()
-    else:
-        print("\nNo new questions were added. All available games may already be scraped.")
-        print("Try again later when new episodes are available on J-Archive.")
