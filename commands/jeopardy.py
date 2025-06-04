@@ -100,12 +100,11 @@ class JeopardyGame(commands.Cog):
             # Update database
             db_session_obj = get_session()
             try:
-                game_session = db_session_obj.query(GameSession).filter_by(
+                # Update the is_active field using SQLAlchemy update
+                db_session_obj.query(GameSession).filter_by(
                     channel_id=str(channel_id)
-                ).first()
-                if game_session:
-                    game_session.is_active = False
-                    db_session_obj.commit()
+                ).update({"is_active": False})
+                db_session_obj.commit()
             except Exception as e:
                 logger.error(f"Error updating game session: {e}")
             finally:
@@ -337,9 +336,9 @@ class JeopardyGame(commands.Cog):
         End the current game in the channel (for moderators).
         """
         # Check if user has manage messages permission
-        if not (hasattr(interaction.user, 'guild_permissions') and 
-                hasattr(interaction.user.guild_permissions, 'manage_messages') and 
-                interaction.user.guild_permissions.manage_messages):
+        if (interaction.guild is None or 
+            not isinstance(interaction.user, discord.Member) or 
+            not interaction.user.guild_permissions.manage_messages):
             embed = discord.Embed(
                 title="❌ Permission Denied",
                 description="You need 'Manage Messages' permission to end games.",
@@ -420,10 +419,10 @@ class JeopardyGame(commands.Cog):
                     value=f"{categories:,}",
                     inline=True
                 )
-                if latest and latest.air_date:
+                if latest is not None and latest.air_date is not None:
                     embed.add_field(
                         name="Latest Episode",
-                        value=latest.air_date,
+                        value=str(latest.air_date),
                         inline=True
                     )
             
