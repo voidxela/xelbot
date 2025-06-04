@@ -1,0 +1,12 @@
+[Unit]
+Description=XELBOT Discord bot background service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 bot.py
+WorkingDirectory=/opt/xelbot
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
