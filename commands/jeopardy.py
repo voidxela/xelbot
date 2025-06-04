@@ -205,15 +205,14 @@ class JeopardyGame(commands.Cog):
             'start_time': discord.utils.utcnow()
         }
         
-        # Save to database
+        # Save to database with proper error handling
         session = get_session()
         try:
-            # Remove any existing session for this channel
-            existing = session.query(GameSession).filter_by(
+            # First, clean up any existing sessions for this channel
+            session.query(GameSession).filter_by(
                 channel_id=str(channel_id)
-            ).first()
-            if existing:
-                session.delete(existing)
+            ).delete()
+            session.commit()
             
             # Create new session
             game_session = GameSession(
@@ -224,8 +223,11 @@ class JeopardyGame(commands.Cog):
             )
             session.add(game_session)
             session.commit()
+            logger.info(f"Created new game session for channel {channel_id}")
         except Exception as e:
             logger.error(f"Error saving game session: {e}")
+            session.rollback()
+            # Continue without database session - game still works in memory
         finally:
             session.close()
         
