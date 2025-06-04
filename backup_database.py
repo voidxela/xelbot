@@ -66,7 +66,7 @@ class DatabaseBackup:
         """
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"discord_bot_backup_{timestamp}.sql"
+            filename = f"xelbot_backup_{timestamp}.sql"
         
         backup_path = self.backup_dir / filename
         
@@ -146,7 +146,7 @@ class DatabaseBackup:
         try:
             if not filename:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"discord_bot_backup_{timestamp}.sql"
+                filename = f"xelbot_backup_{timestamp}.sql"
             
             backup_path = self.backup_dir / filename
             
@@ -195,7 +195,7 @@ class DatabaseBackup:
         """
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"discord_bot_backup_{timestamp}.json"
+            filename = f"xelbot_backup_{timestamp}.json"
         
         backup_path = self.backup_dir / filename
         
@@ -377,7 +377,7 @@ class DatabaseBackup:
         """List all available backup files."""
         backups = []
         # Look for both standard naming pattern and test files
-        patterns = ["discord_bot_backup_*", "test_backup*"]
+        patterns = ["xelbot_backup_*", "test_backup*"]
         
         for pattern in patterns:
             for backup_file in self.backup_dir.glob(pattern):
