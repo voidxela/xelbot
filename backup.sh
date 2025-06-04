@@ -1,7 +1,5 @@
 #!/bin/bash
-"""
-Simple wrapper script for database backup operations.
-"""
+# Simple wrapper script for database backup operations
 
 # Make sure we're in the correct directory
 cd "$(dirname "$0")"
