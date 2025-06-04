@@ -177,6 +177,19 @@ class BasicCommands(commands.Cog):
             inline=False
         )
         
+        # Turnover Commands
+        embed.add_field(
+            name="🏈 /turnover",
+            value="Play a random football turnover clip",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 /turnover_stats",
+            value="Show turnover clip database statistics",
+            inline=False
+        )
+        
         embed.set_footer(text="Use the commands by typing them in chat!")
         
         await interaction.response.send_message(embed=embed)
