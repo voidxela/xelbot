@@ -5,7 +5,8 @@ Tracks which games have been scraped to avoid duplicates and resume from last po
 
 import logging
 from scraper.jeopardy_scraper import JeopardyScraper
-from database.models import get_session, JeopardyQuestion
+from database.models import get_session, JeopardyQuestion, create_tables
+from sqlalchemy.exc import OperationalError
 
 # Setup logging
 logging.basicConfig(
@@ -14,6 +15,38 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+def initialize_database():
+    """
+    Initialize the database by creating tables if they don't exist.
+    Returns True if successful, False otherwise.
+    """
+    try:
+        logger.info("Checking database initialization...")
+        
+        # Try to query the database to see if tables exist
+        db_session = get_session()
+        try:
+            # Simple query to check if the main table exists
+            db_session.query(JeopardyQuestion).count()
+            logger.info("Database tables already exist")
+            return True
+        except OperationalError as e:
+            # Tables don't exist, create them
+            logger.info("Database tables not found, creating them...")
+            db_session.close()
+            
+            # Create the tables
+            create_tables()
+            logger.info("Database tables created successfully")
+            return True
+        finally:
+            if db_session:
+                db_session.close()
+                
+    except Exception as e:
+        logger.error(f"Error during database initialization: {e}")
+        return False
 
 def get_scraped_games():
     """Get list of game IDs that have already been scraped."""
@@ -100,36 +133,49 @@ def populate_jeopardy_questions():
 
 def show_database_stats():
     """Show current database statistics."""
-    db_session = get_session()
     try:
-        total_questions = db_session.query(JeopardyQuestion).count()
-        unique_games = db_session.query(JeopardyQuestion.show_number).distinct().count()
-        
-        # Get category distribution
-        from sqlalchemy import func
-        category_counts = db_session.query(
-            JeopardyQuestion.category,
-            func.count(JeopardyQuestion.id).label('count')
-        ).group_by(JeopardyQuestion.category).order_by(func.count(JeopardyQuestion.id).desc()).limit(10).all()
-        
+        db_session = get_session()
+        try:
+            total_questions = db_session.query(JeopardyQuestion).count()
+            unique_games = db_session.query(JeopardyQuestion.show_number).distinct().count()
+            
+            # Get category distribution
+            from sqlalchemy import func
+            category_counts = db_session.query(
+                JeopardyQuestion.category,
+                func.count(JeopardyQuestion.id).label('count')
+            ).group_by(JeopardyQuestion.category).order_by(func.count(JeopardyQuestion.id).desc()).limit(10).all()
+            
+            print(f"\n=== Database Statistics ===")
+            print(f"Total questions: {total_questions}")
+            print(f"Unique games: {unique_games}")
+            print(f"\nTop 10 categories:")
+            for category, count in category_counts:
+                print(f"  {category}: {count} questions")
+            
+            return total_questions
+        finally:
+            db_session.close()
+            
+    except OperationalError as e:
+        logger.warning("Database tables don't exist yet. No statistics available.")
         print(f"\n=== Database Statistics ===")
-        print(f"Total questions: {total_questions}")
-        print(f"Unique games: {unique_games}")
-        print(f"\nTop 10 categories:")
-        for category, count in category_counts:
-            print(f"  {category}: {count} questions")
-        
-        return total_questions
-        
+        print("Database not initialized yet.")
+        return 0
     except Exception as e:
         logger.error(f"Error getting database stats: {e}")
+        print(f"\n=== Database Statistics ===")
+        print(f"Error accessing database: {e}")
         return 0
-    finally:
-        db_session.close()
 
 if __name__ == "__main__":
     print("Jeopardy Database Population Script")
     print("=" * 40)
+    
+    # Initialize database if needed
+    if not initialize_database():
+        print("Error: Could not initialize database. Exiting.")
+        exit(1)
     
     # Show current stats
     current_total = show_database_stats()
