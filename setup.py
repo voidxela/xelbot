@@ -36,20 +36,53 @@ def check_dependencies():
     return True
 
 def install_python_packages():
-    """Install required Python packages."""
+    """Install required Python packages with fallback methods."""
     print("📦 Installing Python packages...")
     
+    packages = [
+        'discord.py', 'python-dotenv', 'psutil', 'sqlalchemy', 
+        'psycopg2-binary', 'beautifulsoup4', 'requests', 
+        'trafilatura', 'asyncpg'
+    ]
+    
+    # Method 1: Try regular pip install
     try:
         subprocess.run([
-            sys.executable, '-m', 'pip', 'install', '--upgrade',
-            'discord.py', 'python-dotenv', 'psutil', 'sqlalchemy', 
-            'psycopg2-binary', 'beautifulsoup4', 'requests', 
-            'trafilatura', 'asyncpg'
-        ], check=True, capture_output=True)
+            sys.executable, '-m', 'pip', 'install', '--upgrade'
+        ] + packages, check=True, capture_output=True)
         print("✅ Python packages installed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed to install packages: {e}")
+        error_output = e.stderr.decode() if e.stderr else str(e)
+        
+        # Method 2: Try with --user flag for externally-managed environments
+        if "externally-managed-environment" in error_output.lower():
+            print("⚠️  Detected externally-managed environment, trying --user install...")
+            try:
+                subprocess.run([
+                    sys.executable, '-m', 'pip', 'install', '--user', '--upgrade'
+                ] + packages, check=True, capture_output=True)
+                print("✅ Python packages installed successfully with --user")
+                return True
+            except subprocess.CalledProcessError:
+                pass
+        
+        # Method 3: Try with --break-system-packages (last resort)
+        print("⚠️  Trying --break-system-packages flag...")
+        try:
+            subprocess.run([
+                sys.executable, '-m', 'pip', 'install', '--break-system-packages', '--upgrade'
+            ] + packages, check=True, capture_output=True)
+            print("✅ Python packages installed successfully with --break-system-packages")
+            return True
+        except subprocess.CalledProcessError:
+            pass
+        
+        print(f"❌ Failed to install packages with all methods")
+        print("💡 Manual installation options:")
+        print("   1. Create a virtual environment: python -m venv venv && source venv/bin/activate")
+        print("   2. Use pipx for isolated installs")
+        print("   3. Install system packages via package manager")
         return False
 
 def create_env_file():
