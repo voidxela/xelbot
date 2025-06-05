@@ -14,6 +14,104 @@ from utils.logger import get_logger
 
 logger = get_logger("jeopardy")
 
+class NewGameView(discord.ui.View):
+    """View with button to start a new Jeopardy game."""
+    
+    def __init__(self, jeopardy_cog):
+        super().__init__(timeout=300)  # 5 minute timeout
+        self.jeopardy_cog = jeopardy_cog
+    
+    @discord.ui.button(label='🎯 Start New Game', style=discord.ButtonStyle.primary)
+    async def start_new_game(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Start a new Jeopardy game when button is clicked."""
+        # Check if there's already an active game in this channel
+        channel_id = interaction.channel_id
+        if channel_id in self.jeopardy_cog.active_games:
+            embed = discord.Embed(
+                title="🎯 Game Already Active",
+                description="There's already a Jeopardy game running in this channel! Answer the current question first.",
+                color=discord.Color.yellow()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        # Get a random question
+        question = await self.jeopardy_cog.get_random_question()
+        
+        if not question:
+            embed = discord.Embed(
+                title="❌ No Questions Available",
+                description="No Jeopardy questions found in the database. Please wait while we gather more questions.",
+                color=discord.Color.red()
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        
+        # Create the clue embed
+        embed = discord.Embed(
+            title="🎯 Jeopardy Clue",
+            description=question.clue,
+            color=discord.Color.blue()
+        )
+        embed.add_field(
+            name="Category",
+            value=question.category,
+            inline=True
+        )
+        if question.value is not None:
+            embed.add_field(
+                name="Value",
+                value=f"${question.value:,}",
+                inline=True
+            )
+        embed.add_field(
+            name="Time Limit",
+            value="30 seconds",
+            inline=True
+        )
+        embed.set_footer(text="Type your answer in chat! Remember to phrase as a question.")
+        
+        await interaction.response.send_message(embed=embed)
+        
+        # Store game data
+        self.jeopardy_cog.active_games[channel_id] = {
+            'question': question,
+            'start_time': discord.utils.utcnow()
+        }
+        
+        # Save to database with proper error handling
+        session = get_session()
+        try:
+            # First, clean up any existing sessions for this channel
+            session.query(GameSession).filter_by(
+                channel_id=str(channel_id)
+            ).delete()
+            session.commit()
+            
+            # Create new session
+            game_session = GameSession(
+                channel_id=str(channel_id),
+                question_id=question.id,
+                is_active=True,
+                timeout_seconds=30
+            )
+            session.add(game_session)
+            session.commit()
+            logger.info(f"Created new game session for channel {channel_id}")
+        except Exception as e:
+            logger.error(f"Error saving game session: {e}")
+            session.rollback()
+            # Continue without database session - game still works in memory
+        finally:
+            session.close()
+        
+        # Start timeout task
+        if interaction.channel_id is not None:
+            timeout_task = asyncio.create_task(
+                self.jeopardy_cog.timeout_game(interaction.channel_id, interaction.channel, question)
+            )
+            self.jeopardy_cog.active_games[channel_id]['timeout_task'] = timeout_task
+
 class JeopardyGame(commands.Cog):
     """
     Jeopardy game commands and functionality.
@@ -147,7 +245,10 @@ class JeopardyGame(commands.Cog):
                             inline=True
                         )
                     
-                    await fresh_channel.send(embed=embed)
+                    # Create view with new game button
+                    view = NewGameView(self)
+                    
+                    await fresh_channel.send(embed=embed, view=view)
                     logger.info(f"Timeout message sent for game in channel {channel_id}")
                 else:
                     logger.warning(f"Could not get channel {channel_id} for timeout message")
@@ -327,7 +428,10 @@ class JeopardyGame(commands.Cog):
             if question.air_date:
                 embed.set_footer(text=f"Originally aired: {question.air_date}")
             
-            await message.channel.send(embed=embed)
+            # Create view with new game button
+            view = NewGameView(self)
+            
+            await message.channel.send(embed=embed, view=view)
             await self.end_game(channel_id, winner=message.author, correct_answer=question.answer)
     
     @app_commands.command(name="endgame", description="End the current Jeopardy game (moderators only)")
@@ -377,7 +481,10 @@ class JeopardyGame(commands.Cog):
             inline=True
         )
         
-        await interaction.response.send_message(embed=embed)
+        # Create view with new game button
+        view = NewGameView(self)
+        
+        await interaction.response.send_message(embed=embed, view=view)
         if interaction.channel_id is not None:
             await self.end_game(interaction.channel_id, correct_answer=str(question.answer))
     
