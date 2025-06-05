@@ -120,6 +120,51 @@ class JeopardyGame(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.active_games = {}  # channel_id -> game_data
+    
+    def create_question_embed(self, question: JeopardyQuestion, title: str = "🎯 Jeopardy Clue", 
+                             include_time_limit: bool = True, color: discord.Color = discord.Color.blue()) -> discord.Embed:
+        """
+        Create a standardized embed for displaying Jeopardy questions with year information.
+        """
+        embed = discord.Embed(
+            title=title,
+            description=question.clue,
+            color=color
+        )
+        embed.add_field(
+            name="Category",
+            value=question.category,
+            inline=True
+        )
+        if question.value is not None:
+            embed.add_field(
+                name="Value",
+                value=f"${question.value:,}",
+                inline=True
+            )
+        
+        # Add year if air_date is available
+        if question.air_date:
+            try:
+                # Extract year from air_date (format: YYYY-MM-DD)
+                year = question.air_date.split('-')[0]
+                embed.add_field(
+                    name="Year",
+                    value=year,
+                    inline=True
+                )
+            except:
+                pass  # If air_date format is unexpected, skip the year display
+        
+        if include_time_limit:
+            embed.add_field(
+                name="Time Limit",
+                value="30 seconds",
+                inline=True
+            )
+            embed.set_footer(text="Type your answer in chat! Remember to phrase as a question.")
+        
+        return embed
         
     def normalize_answer(self, answer: str) -> str:
         """
