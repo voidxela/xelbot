@@ -110,17 +110,23 @@ class TurnoverCommands(commands.Cog):
             with psycopg2.connect(database_url) as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT usage_count FROM turnover_usage WHERE user_id = %s AND last_used_date = %s",
-                        (str(user_id), current_date)
+                        "SELECT last_used_date, usage_count FROM turnover_usage WHERE user_id = %s",
+                        (str(user_id),)
                     )
                     result = cur.fetchone()
                     
                     if result is None:
-                        # User hasn't used it today
+                        # User has never used the command
                         return True, 0
-                    else:
+                    
+                    last_used_date, usage_count = result
+                    
+                    if last_used_date == current_date:
                         # User already used it today
-                        return False, result[0]
+                        return False, usage_count
+                    else:
+                        # User hasn't used it today (different date)
+                        return True, usage_count
         except Exception as e:
             logger.error(f"Error checking turnover usage for user {user_id}: {e}")
             # Default to allowing usage if there's a database error
@@ -139,18 +145,19 @@ class TurnoverCommands(commands.Cog):
             
             with psycopg2.connect(database_url) as conn:
                 with conn.cursor() as cur:
-                    # Try to update existing record first
-                    cur.execute(
-                        "UPDATE turnover_usage SET usage_count = usage_count + 1, updated_at = CURRENT_TIMESTAMP WHERE user_id = %s AND last_used_date = %s",
-                        (str(user_id), current_date)
-                    )
-                    
-                    if cur.rowcount == 0:
-                        # No existing record, insert new one
-                        cur.execute(
-                            "INSERT INTO turnover_usage (user_id, last_used_date, usage_count) VALUES (%s, %s, 1)",
-                            (str(user_id), current_date)
-                        )
+                    # Use UPSERT to handle both new users and date changes
+                    cur.execute("""
+                        INSERT INTO turnover_usage (user_id, last_used_date, usage_count, updated_at) 
+                        VALUES (%s, %s, 1, CURRENT_TIMESTAMP)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            last_used_date = EXCLUDED.last_used_date,
+                            usage_count = CASE 
+                                WHEN turnover_usage.last_used_date = EXCLUDED.last_used_date 
+                                THEN turnover_usage.usage_count + 1
+                                ELSE 1
+                            END,
+                            updated_at = CURRENT_TIMESTAMP
+                    """, (str(user_id), current_date))
                     
                     conn.commit()
         except Exception as e:
