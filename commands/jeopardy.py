@@ -231,9 +231,11 @@ class JeopardyGame(commands.Cog):
         if len(correct_words) > 1 and len(user_words) > 1:
             # Count how many significant words match
             matches = 0
+            common_words = ['answer', 'question', 'word', 'name', 'place', 'thing', 'person']
+            
             for correct_word in correct_words:
-                # Skip very short words (articles, prepositions already removed)
-                if len(correct_word) < 3:
+                # Skip very short words and common words
+                if len(correct_word) < 3 or correct_word in common_words:
                     continue
                     
                 # Check if this word appears in user answer (exact or partial)
@@ -249,19 +251,34 @@ class JeopardyGame(commands.Cog):
                 if word_found:
                     matches += 1
             
-            # Need at least 50% of significant words to match (more lenient)
-            significant_words = sum(1 for word in correct_words if len(word) >= 3)
-            if significant_words > 0:
+            # Need at least 60% of significant words to match, and at least one significant word
+            significant_words = sum(1 for word in correct_words if len(word) >= 3 and word not in common_words)
+            if significant_words > 0 and matches > 0:
                 match_ratio = matches / significant_words
-                return match_ratio >= 0.5
+                return match_ratio >= 0.6
         
         # Fallback: check if user answer contains most of the correct answer
         # This handles cases where word order might be different
-        if len(correct_normalized) > 0:
-            # Count character overlap (simple similarity measure)
-            common_chars = sum(1 for char in correct_normalized if char in user_normalized)
-            similarity = common_chars / len(correct_normalized)
-            return similarity >= 0.7  # More lenient threshold
+        if len(correct_normalized) > 0 and len(user_normalized) > 0:
+            # Special case: if correct answer is much shorter due to normalization,
+            # check if the correct answer is fully contained in user answer
+            if len(correct_normalized) < len(user_normalized) * 0.5:
+                # Check if correct answer is a substring of user answer
+                if correct_normalized in user_normalized:
+                    return True
+            
+            # More sophisticated similarity check - both directions
+            correct_in_user = sum(1 for char in correct_normalized if char in user_normalized)
+            user_in_correct = sum(1 for char in user_normalized if char in correct_normalized)
+            
+            # Calculate bidirectional similarity
+            forward_sim = correct_in_user / len(correct_normalized)
+            backward_sim = user_in_correct / len(user_normalized)
+            
+            # Only match if both directions show high similarity and answers are reasonably similar in length
+            length_ratio = min(len(user_normalized), len(correct_normalized)) / max(len(user_normalized), len(correct_normalized))
+            
+            return forward_sim >= 0.9 and backward_sim >= 0.9 and length_ratio >= 0.7
         
         return False
     
