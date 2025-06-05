@@ -75,7 +75,7 @@ def populate_jeopardy_questions():
     Populate database with real Jeopardy questions from multiple games.
     Continues from where previous runs left off.
     """
-    scraper = JeopardyScraper(delay_seconds=2.0)
+    scraper = JeopardyScraper(delay_seconds=1.0)
 
     try:
         scraped_games = get_scraped_games()
