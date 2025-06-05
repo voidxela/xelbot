@@ -107,14 +107,42 @@ class JeopardyScraper:
             soup = BeautifulSoup(response.content, 'html.parser')
             questions = []
             
-            # Get air date
+            # Get air date with multiple fallback strategies
             air_date = None
+            
+            # Strategy 1: Look for game_title div
             date_elem = soup.find('div', id='game_title')
             if date_elem:
                 date_text = date_elem.get_text()
                 date_match = re.search(r'aired (\d{4}-\d{2}-\d{2})', date_text)
                 if date_match:
                     air_date = date_match.group(1)
+            
+            # Strategy 2: Look for any element containing "aired" followed by a date
+            if not air_date:
+                for elem in soup.find_all(text=re.compile(r'aired.*\d{4}')):
+                    date_match = re.search(r'aired.*?(\d{4}-\d{2}-\d{2})', elem)
+                    if date_match:
+                        air_date = date_match.group(1)
+                        break
+                    # Try alternative date format
+                    date_match = re.search(r'aired.*?(\w+\s+\d{1,2},\s+\d{4})', elem)
+                    if date_match:
+                        # Convert "January 1, 2024" to "2024-01-01"
+                        try:
+                            from datetime import datetime
+                            date_obj = datetime.strptime(date_match.group(1), '%B %d, %Y')
+                            air_date = date_obj.strftime('%Y-%m-%d')
+                            break
+                        except:
+                            pass
+            
+            # Strategy 3: Extract from URL if it contains date info
+            if not air_date:
+                url_date_match = re.search(r'/game_(\d{4})(\d{2})(\d{2})/', game_url)
+                if url_date_match:
+                    year, month, day = url_date_match.groups()
+                    air_date = f"{year}-{month}-{day}"
             
             # Process each round
             rounds = [

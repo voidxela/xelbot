@@ -47,29 +47,8 @@ class NewGameView(discord.ui.View):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         
-        # Create the clue embed
-        embed = discord.Embed(
-            title="🎯 Jeopardy Clue",
-            description=question.clue,
-            color=discord.Color.blue()
-        )
-        embed.add_field(
-            name="Category",
-            value=question.category,
-            inline=True
-        )
-        if question.value is not None:
-            embed.add_field(
-                name="Value",
-                value=f"${question.value:,}",
-                inline=True
-            )
-        embed.add_field(
-            name="Time Limit",
-            value="30 seconds",
-            inline=True
-        )
-        embed.set_footer(text="Type your answer in chat! Remember to phrase as a question.")
+        # Create the clue embed with year information
+        embed = self.jeopardy_cog.create_question_embed(question)
         
         await interaction.response.send_message(embed=embed)
         
@@ -144,10 +123,11 @@ class JeopardyGame(commands.Cog):
             )
         
         # Add year if air_date is available
-        if question.air_date:
+        air_date_value = getattr(question, 'air_date', None)
+        if air_date_value and str(air_date_value).strip():
             try:
                 # Extract year from air_date (format: YYYY-MM-DD)
-                year = question.air_date.split('-')[0]
+                year = str(air_date_value).split('-')[0]
                 embed.add_field(
                     name="Year",
                     value=year,
@@ -273,22 +253,13 @@ class JeopardyGame(commands.Cog):
                     fresh_channel = await self.bot.fetch_channel(channel_id)
                 
                 if fresh_channel:
-                    embed = discord.Embed(
-                        title="⏰ Time's Up!",
-                        description=f"The correct answer was: **{question.answer}**",
+                    embed = self.create_question_embed(
+                        question, 
+                        title="⏰ Time's Up!", 
+                        include_time_limit=False, 
                         color=discord.Color.red()
                     )
-                    embed.add_field(
-                        name="Category",
-                        value=question.category,
-                        inline=True
-                    )
-                    if question.value is not None:
-                        embed.add_field(
-                            name="Value",
-                            value=f"${question.value:,}",
-                            inline=True
-                        )
+                    embed.description = f"The correct answer was: **{question.answer}**"
                     
                     # Create view with new game button
                     view = NewGameView(self)
@@ -353,29 +324,8 @@ class JeopardyGame(commands.Cog):
             await interaction.response.send_message(embed=embed, ephemeral=True)
             return
         
-        # Create the clue embed
-        embed = discord.Embed(
-            title="🎯 Jeopardy Clue",
-            description=question.clue,
-            color=discord.Color.blue()
-        )
-        embed.add_field(
-            name="Category",
-            value=question.category,
-            inline=True
-        )
-        if question.value is not None:
-            embed.add_field(
-                name="Value",
-                value=f"${question.value:,}",
-                inline=True
-            )
-        embed.add_field(
-            name="Time Limit",
-            value="30 seconds",
-            inline=True
-        )
-        embed.set_footer(text="Type your answer in chat! Remember to phrase as a question.")
+        # Create the clue embed with year information
+        embed = self.create_question_embed(question)
         
         await interaction.response.send_message(embed=embed)
         
