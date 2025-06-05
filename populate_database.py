@@ -87,18 +87,9 @@ def populate_jeopardy_questions():
             logger.error("Could not retrieve season list")
             return 0
         season_index = 0
-        season = seasons[season_index]
-        logger.info(f"Using season {season['season']}")
-        games = scraper.get_games_from_season(season['url'])
-        if not games:
-            logger.error("No games found in season")
-            return 0
-        new_games = [
-            game for game in games if game['game_id'] not in scraped_games
-        ]
+        new_games = []
         while not new_games and season_index < len(seasons):
             logger.info("All games in this season have already been scraped")
-            season_index += 1
             season = sorted(seasons, key=lambda x: x['season'],
                             reverse=True)[season_index]
             logger.info(f"Trying season {season['season']}")
@@ -106,6 +97,7 @@ def populate_jeopardy_questions():
             new_games = [
                 game for game in games if game['game_id'] not in scraped_games
             ]
+            season_index += 1
         if not new_games:
             logger.info("No new games to scrape")
             return 0
