@@ -18,8 +18,18 @@ class NewGameView(discord.ui.View):
     """View with button to start a new Jeopardy game."""
     
     def __init__(self, jeopardy_cog):
-        super().__init__(timeout=300)  # 5 minute timeout
+        super().__init__(timeout=30)  # 30 second timeout to match game session
         self.jeopardy_cog = jeopardy_cog
+        self.message = None  # Will be set after the message is sent
+    
+    async def on_timeout(self):
+        """Called when the view times out. Remove the view entirely."""
+        # Simply remove the view (buttons) from the message when it times out
+        if self.message:
+            try:
+                await self.message.edit(view=None)
+            except Exception as e:
+                logger.error(f"Error removing view on timeout: {e}")
     
     @discord.ui.button(label='🎯 Start New Game', style=discord.ButtonStyle.primary)
     async def start_new_game(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -362,7 +372,8 @@ class JeopardyGame(commands.Cog):
                     # Create view with new game button
                     view = NewGameView(self)
                     
-                    await fresh_channel.send(embed=embed, view=view)
+                    message = await fresh_channel.send(embed=embed, view=view)
+                    view.message = message
                     logger.info(f"Timeout message sent for game in channel {channel_id}")
                 else:
                     logger.warning(f"Could not get channel {channel_id} for timeout message")
