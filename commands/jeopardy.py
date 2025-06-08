@@ -18,7 +18,7 @@ class NewGameView(discord.ui.View):
     """View with button to start a new Jeopardy game."""
     
     def __init__(self, jeopardy_cog):
-        super().__init__(timeout=30)  # 30 second timeout to match game session
+        super().__init__(timeout=300)
         self.jeopardy_cog = jeopardy_cog
         self.message = None  # Will be set after the message is sent
     
