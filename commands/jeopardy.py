@@ -25,11 +25,12 @@ class NewGameView(discord.ui.View):
     async def on_timeout(self):
         """Called when the view times out. Remove the view entirely."""
         # Simply remove the view (buttons) from the message when it times out
-        if self.message:
-            try:
+        try:
+            if hasattr(self, 'message') and self.message:
                 await self.message.edit(view=None)
-            except Exception as e:
-                logger.error(f"Error removing view on timeout: {e}")
+        except Exception:
+            # Silently fail if message can't be edited (e.g., deleted, no permission)
+            pass
     
     @discord.ui.button(label='🎯 Start New Game', style=discord.ButtonStyle.primary)
     async def start_new_game(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -535,7 +536,8 @@ class JeopardyGame(commands.Cog):
             # Create view with new game button
             view = NewGameView(self)
             
-            await message.channel.send(embed=embed, view=view)
+            sent_message = await message.channel.send(embed=embed, view=view)
+            view.message = sent_message
             await self.end_game(channel_id, winner=message.author, correct_answer=question.answer)
     
     @app_commands.command(name="endgame", description="End the current Jeopardy game (moderators only)")
