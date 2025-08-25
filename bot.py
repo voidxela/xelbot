@@ -1,7 +1,5 @@
 import os
 import asyncio
-import logging
-from typing import Optional
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
