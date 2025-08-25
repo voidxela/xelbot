@@ -12,7 +12,6 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
-import logging
 
 # Add the project root to Python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
