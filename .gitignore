@@ -1,2 +1,4 @@
 backups/
 logs/
+__pycache__/
+.env

@@ -7,6 +7,9 @@ This script creates the necessary database tables if they don't exist.
 import logging
 from database.models import create_tables, get_session, JeopardyQuestion, GameSession
 from sqlalchemy.exc import OperationalError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(
