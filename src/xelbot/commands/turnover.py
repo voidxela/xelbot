@@ -12,9 +12,6 @@ import logging
 import re
 from datetime import datetime
 import pytz
-from database.models import get_session
-import sqlite3
-import psycopg2
 
 logger = logging.getLogger(__name__)
 

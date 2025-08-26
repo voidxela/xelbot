@@ -9,8 +9,8 @@ import asyncio
 import random
 import re
 from typing import Optional
-from database.models import JeopardyQuestion, GameSession, get_session
-from utils.logger import get_logger
+from ..database.models import JeopardyQuestion, GameSession, get_session
+from ..utils.logger import get_logger
 
 logger = get_logger("jeopardy")
 

@@ -9,7 +9,7 @@ import re
 import logging
 from bs4 import BeautifulSoup
 from typing import List, Dict
-from database.models import get_session, JeopardyQuestion
+from ..database.models import get_session, JeopardyQuestion
 
 logger = logging.getLogger(__name__)
 
@@ -337,26 +337,3 @@ class JeopardyScraper:
             return 0
         finally:
             db_session.close()
-
-def test_improved_scraper():
-    """Test the improved scraper."""
-    scraper = ImprovedJeopardyScraper(delay_seconds=1.0)
-    
-    # Test with a known game
-    game_url = "https://www.j-archive.com/showgame.php?game_id=9219"
-    questions = scraper.scrape_game_questions(game_url, 9219)
-    
-    if questions:
-        print(f"Found {len(questions)} questions")
-        for i, q in enumerate(questions[:3]):
-            print(f"\nExample {i+1}:")
-            print(f"Category: {q['category']}")
-            print(f"Clue: {q['clue'][:100]}...")
-            print(f"Answer: {q['answer']}")
-            print(f"Value: ${q['value'] if q['value'] else 'N/A'}")
-            print(f"Round: {q['round_type']}")
-    else:
-        print("No questions found")
-
-if __name__ == "__main__":
-    test_improved_scraper()

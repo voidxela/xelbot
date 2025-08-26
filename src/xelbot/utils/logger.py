@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-def setup_logger(name: str = "discord_bot", level: int = logging.INFO) -> logging.Logger:
+def setup_logger(name: str = "xelbot", level: int = logging.INFO) -> logging.Logger:
     """
     Set up a logger with both file and console handlers.
     
@@ -63,7 +63,7 @@ def setup_logger(name: str = "discord_bot", level: int = logging.INFO) -> loggin
     
     return logger
 
-def get_logger(name: str = "discord_bot") -> logging.Logger:
+def get_logger(name: str = "xelbot") -> logging.Logger:
     """
     Get an existing logger instance.
     

@@ -1,4 +1,8 @@
 backups/
 logs/
-__pycache__/
+.venv/
+dist/
+**/*.egg-info/
+**/__pycache__/
+
 .env

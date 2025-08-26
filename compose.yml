@@ -1,0 +1,30 @@
+---
+services:
+  xelbot:
+    build: .
+    container_name: xelbot
+    depends_on:
+      - db
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN}
+      DATABASE_URL: postgresql://${DB_USERNAME}:${DB_PASSWORD}@xelbot_db:5432/${DB_NAME}
+      JEOPARDY_TIMEOUT: ${JEOPARDY_TIMEOUT}
+      LOG_LEVEL: ${LOG_LEVEL}
+    volumes:
+      - logs:/app/logs
+      - backups:/app/backups
+    restart: unless-stopped
+  db:
+    image: postgres:15
+    container_name: xelbot_db
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - data:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  logs:
+  backups:
+  data:

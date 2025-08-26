@@ -1,22 +1,11 @@
-"""
-Production script to populate the database with real Jeopardy questions.
-Tracks which games have been scraped to avoid duplicates and resume from last position.
-"""
+from sqlalchemy.exc import ProgrammingError
+from psycopg2 import errorcodes
 
-import logging
-from scraper.jeopardy_scraper import JeopardyScraper
-from database.models import get_session, JeopardyQuestion, create_tables
-from sqlalchemy.exc import OperationalError
-from dotenv import load_dotenv
+from .models import JeopardyQuestion, create_tables, get_session
+from ..scraper.jeopardy_scraper import JeopardyScraper
+from ..utils.logger import get_logger
 
-load_dotenv()
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)-8s | %(name)s | %(message)s')
-
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def initialize_database():
@@ -26,20 +15,16 @@ def initialize_database():
     """
     try:
         logger.info("Checking database initialization...")
-
-        # Try to query the database to see if tables exist
         db_session = get_session()
         try:
-            # Simple query to check if the main table exists
             db_session.query(JeopardyQuestion).count()
             logger.info("Database tables already exist")
             return True
-        except OperationalError as e:
-            # Tables don't exist, create them
+        except ProgrammingError as e:
+            if e.orig.pgcode != errorcodes.UNDEFINED_TABLE:
+                raise e
             logger.info("Database tables not found, creating them...")
             db_session.close()
-
-            # Create the tables
             create_tables()
             logger.info("Database tables created successfully")
             return True
@@ -57,9 +42,8 @@ def get_scraped_games():
     db_session = get_session()
     try:
         scraped_games = set()
-        results = db_session.query(
-            JeopardyQuestion.show_number).distinct().all()
-        for (game_id, ) in results:
+        results = db_session.query(JeopardyQuestion.show_number).distinct().all()
+        for (game_id,) in results:
             if game_id:
                 scraped_games.add(game_id)
         return scraped_games
@@ -80,9 +64,9 @@ def populate_jeopardy_questions():
     try:
         scraped_games = get_scraped_games()
         logger.info(f"Found {len(scraped_games)} games already in database")
-        seasons = sorted(scraper.get_season_list(),
-                         key=lambda x: x['season'],
-                         reverse=True)
+        seasons = sorted(
+            scraper.get_season_list(), key=lambda x: x["season"], reverse=True
+        )
         if not seasons:
             logger.error("Could not retrieve season list")
             return 0
@@ -90,13 +74,12 @@ def populate_jeopardy_questions():
         new_games = []
         while not new_games and season_index < len(seasons):
             logger.info("All games in this season have already been scraped")
-            season = sorted(seasons, key=lambda x: x['season'],
-                            reverse=True)[season_index]
-            logger.info(f"Trying season {season['season']}")
-            games = scraper.get_games_from_season(season['url'])
-            new_games = [
-                game for game in games if game['game_id'] not in scraped_games
+            season = sorted(seasons, key=lambda x: x["season"], reverse=True)[
+                season_index
             ]
+            logger.info(f"Trying season {season['season']}")
+            games = scraper.get_games_from_season(season["url"])
+            new_games = [game for game in games if game["game_id"] not in scraped_games]
             season_index += 1
         if not new_games:
             logger.info("No new games to scrape")
@@ -109,14 +92,12 @@ def populate_jeopardy_questions():
                 f"Processing game {game['game_id']} ({games_processed + 1}/{len(new_games)})"
             )
 
-            questions = scraper.scrape_game_questions(game['url'],
-                                                      game['game_id'])
+            questions = scraper.scrape_game_questions(game["url"], game["game_id"])
 
             if questions:
                 saved = scraper.save_questions_to_database(questions)
                 total_questions += saved
-                logger.info(
-                    f"Saved {saved} questions from game {game['game_id']}")
+                logger.info(f"Saved {saved} questions from game {game['game_id']}")
             else:
                 logger.warning(f"No questions found in game {game['game_id']}")
 
@@ -130,8 +111,9 @@ def populate_jeopardy_questions():
         db_session = get_session()
         try:
             total_in_db = db_session.query(JeopardyQuestion).count()
-            unique_games = db_session.query(
-                JeopardyQuestion.show_number).distinct().count()
+            unique_games = (
+                db_session.query(JeopardyQuestion.show_number).distinct().count()
+            )
             logger.info(
                 f"Database now contains {total_in_db} questions from {unique_games} games"
             )
@@ -153,22 +135,28 @@ def show_database_stats():
         db_session = get_session()
         try:
             total_questions = db_session.query(JeopardyQuestion).count()
-            unique_games = db_session.query(
-                JeopardyQuestion.show_number).distinct().count()
+            unique_games = (
+                db_session.query(JeopardyQuestion.show_number).distinct().count()
+            )
 
             # Get category distribution
             from sqlalchemy import func
-            category_counts = db_session.query(
-                JeopardyQuestion.category,
-                func.count(JeopardyQuestion.id).label('count')).group_by(
-                    JeopardyQuestion.category).order_by(
-                        func.count(
-                            JeopardyQuestion.id).desc()).limit(10).all()
 
-            print(f"\n=== Database Statistics ===")
+            category_counts = (
+                db_session.query(
+                    JeopardyQuestion.category,
+                    func.count(JeopardyQuestion.id).label("count"),
+                )
+                .group_by(JeopardyQuestion.category)
+                .order_by(func.count(JeopardyQuestion.id).desc())
+                .limit(10)
+                .all()
+            )
+
+            print("\n=== Database Statistics ===")
             print(f"Total questions: {total_questions}")
             print(f"Unique games: {unique_games}")
-            print(f"\nTop 10 categories:")
+            print("\nTop 10 categories:")
             for category, count in category_counts:
                 print(f"  {category}: {count} questions")
 
@@ -176,30 +164,15 @@ def show_database_stats():
         finally:
             db_session.close()
 
-    except OperationalError as e:
-        logger.warning(
-            "Database tables don't exist yet. No statistics available.")
-        print(f"\n=== Database Statistics ===")
+    except ProgrammingError as e:
+        if e.orig.pgcode != errorcodes.UNDEFINED_TABLE:
+            raise e
+        logger.warning("Database tables don't exist yet. No statistics available.")
+        print("\n=== Database Statistics ===")
         print("Database not initialized yet.")
         return 0
     except Exception as e:
         logger.error(f"Error getting database stats: {e}")
-        print(f"\n=== Database Statistics ===")
+        print("\n=== Database Statistics ===")
         print(f"Error accessing database: {e}")
         return 0
-
-
-if __name__ == "__main__":
-    print("Jeopardy Database Population Script")
-    print("=" * 40)
-
-    # Initialize database if needed
-    if not initialize_database():
-        print("Error: Could not initialize database. Exiting.")
-        exit(1)
-
-    # Show current stats
-    current_total = show_database_stats()
-
-    # Start scraping
-    populate_jeopardy_questions()
