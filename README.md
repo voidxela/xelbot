@@ -36,11 +36,20 @@ A feature-rich Discord bot built with discord.py that provides utility commands 
 
 ### Run with Docker
 
-1. **Set up environment variable:**
+1. **Set up environment variables:**
 ```bash
 cp .env.example .env
 # Edit .env with your actual values
+```
 
+2. **Deploy compose project:**
+```bash
+docker compose up -d
+```
+
+3. **Populate the database:**
+```bash
+docker exec xelbot xelbot db populate
 ```
 
 ### Install as executable
